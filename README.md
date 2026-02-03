@@ -8,7 +8,7 @@ Easy to extend with real model outputs (e.g. Delft3D, NetCDF)
 
 Frontend-ready (React, dashboards, data explorers)
 
-Resume- and portfolio-friendly
+Resume- and portfolio-friendly (clean architecture, typed API design)
 
 Features
 
@@ -48,14 +48,22 @@ uvicorn app.main:app --reload
 
 Swagger UI: http://127.0.0.1:8000/docs
 
-Health check: http://127.0.0.1:8000/health
+Health checks:
+- http://127.0.0.1:8000/health/live
+- http://127.0.0.1:8000/health/ready
 
 API Endpoints
-GET /health
+GET /health/live
+GET /health/ready
+
+Used for liveness and readiness checks (e.g. Docker, Kubernetes).
 
 Returns service status.
 
-{ "status": "ok" }
+Example responses:
+{ "status": "alive" }
+
+{ "status": "ready", "csv_count": 200 }
 
 GET /simulations
 
@@ -65,6 +73,7 @@ Returns simulation results loaded from a CSV file.
   "count": 200,
   "results": [
     {
+      "row_id": 1,
       "simulation_id": 1,
       "time": 0.0,
       "salinity": 30.0,
@@ -82,10 +91,24 @@ Returns basic statistics across the dataset.
 
 {
   "count": 200,
-  "salinity_min": 29.8,
-  "salinity_max": 30.4,
-  "salinity_mean": 30.1
+  "salinity": {
+    "min": 29.8,
+    "max": 30.4,
+    "mean": 30.1
+  },
+  "temperature": {
+    "min": 27.5,
+    "max": 29.1,
+    "mean": 28.3
+  },
+  "water_level": {...},
+  "u_velocity": {...},
+  "v_velocity": {...}
 }
+
+Query parameters (GET /simulations):
+- simulation_id (optional): filter by simulation run
+- row_id (optional): fetch a specific record
 
 Running with Docker
 
@@ -125,9 +148,15 @@ Connect to cloud storage
 
 Support real simulation pipelines
 
-Future Enhancements (Optional)
+Conceptual Model
 
-Filtering by simulation ID or time range
+- simulation_id represents a simulation run
+- each run contains many rows (timesteps / measurements)
+- row_id uniquely identifies each record
+
+Future Enhancements
+
+Advanced filtering (time range, multiple variables)
 
 Pagination for large datasets
 
