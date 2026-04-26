@@ -20,6 +20,8 @@ CSV-backed data source (simple, transparent, reproducible)
 
 Automatic Swagger documentation (/docs)
 
+AI-assisted interpretation endpoint with mock mode for local testing
+
 Clean, modular project structure
 
 Project Structure
@@ -30,6 +32,7 @@ simulation-api/
 │   ├── routes/
 │   │   ├── health.py        # Health check endpoint
 │   │   └── simulations.py  # Simulation data endpoints
+│   │   ├── ai.py            # AI interpretation endpoint
 │   └── data/
 │       └── load_simulation_csv.py  # CSV loading logic
 ├── data/
@@ -105,6 +108,39 @@ Returns basic statistics across the dataset.
   "u_velocity": {...},
   "v_velocity": {...}
 }
+
+GET /ai/interpret
+
+Returns a plain-language interpretation of structured simulation values.
+
+This endpoint demonstrates AI integration into a backend API workflow. It supports mock mode for local testing without external API usage.
+
+Example request:
+
+{
+  "salinity": 30.2,
+  "temperature": 28.1,
+  "water_level": 1.4,
+  "u_velocity": 0.12,
+  "v_velocity": 0.04
+}
+
+Example response:
+
+{
+  "interpretation": "Mock interpretation: The simulation values suggest generally stable coastal water conditions. Salinity and temperature are within a typical range, while the velocity components indicate relatively weak flow. Further review would depend on site-specific thresholds and model context."
+}
+
+Mock mode:
+
+Set this in your .env file:
+
+MOCK_AI=true
+
+To use real AI responses:
+
+MOCK_AI=false
+OPENAI_API_KEY=your_api_key_here
 
 Query parameters (GET /simulations):
 - simulation_id (optional): filter by simulation run
