@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Simulation Results API
 
 A lightweight FastAPI backend that serves environmental simulation results from CSV files as a typed, validated JSON API.
