@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["Health"])
 
 DATA_DIR = Path("app/data/simulations")
 

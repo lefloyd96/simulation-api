@@ -6,10 +6,12 @@ import os
 
 load_dotenv()
 
-router = APIRouter(prefix="/ai", tags=["AI"])
+router = APIRouter(
+    prefix="/ai",
+    tags=["AI"]
+)
 
 MOCK_AI = os.getenv("MOCK_AI", "true").lower() == "true"
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 class SimulationInterpretRequest(BaseModel):
@@ -26,18 +28,23 @@ class SimulationInterpretResponse(BaseModel):
 
 @router.post("/interpret", response_model=SimulationInterpretResponse)
 def interpret_simulation(data: SimulationInterpretRequest):
-    prompt = f"""
-    Interpret these environmental simulation values in clear, non-technical language.
-
-    Salinity: {data.salinity}
-    Temperature: {data.temperature}
-    Water level: {data.water_level}
-    U velocity: {data.u_velocity}
-    V velocity: {data.v_velocity}
-
-    Keep the response concise and avoid overstating certainty.
+    """
+    Generate a plain-English interpretation of simulation values.
     """
 
+    prompt = f"""
+Interpret these environmental simulation values in clear, non-technical language.
+
+Salinity: {data.salinity}
+Temperature: {data.temperature}
+Water level: {data.water_level}
+U velocity: {data.u_velocity}
+V velocity: {data.v_velocity}
+
+Keep the response concise and avoid overstating certainty.
+"""
+
+    # Local development mode
     if MOCK_AI:
         return SimulationInterpretResponse(
             interpretation=(
@@ -48,10 +55,17 @@ def interpret_simulation(data: SimulationInterpretRequest):
             )
         )
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="OPENAI_API_KEY is not configured."
+        )
 
     try:
+        client = OpenAI(api_key=api_key)
+
         response = client.responses.create(
             model="gpt-4.1-mini",
             input=prompt,
@@ -64,5 +78,5 @@ def interpret_simulation(data: SimulationInterpretRequest):
     except Exception as error:
         raise HTTPException(
             status_code=500,
-            detail=f"AI interpretation failed: {str(error)}"
+            detail=f"AI interpretation failed: {error}"
         )

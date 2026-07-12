@@ -3,7 +3,7 @@ from typing import Optional
 from data.load_simulation_csv import load_simulation_data
 from app.schemas import SimulationResponse, SimulationRow, SimulationSummary
 
-router = APIRouter()
+router = APIRouter(tags=["Simulations"])
 
 simulation_data = load_simulation_data()
 
