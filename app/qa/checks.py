@@ -1,33 +1,16 @@
-"""
-QA / anomaly-detection checks for environmental simulation output.
-
-Each check function takes a list of row dicts for a SINGLE simulation_id,
-sorted by time, and returns a list of QAFinding objects. Keep checks
-deterministic and explainable — no LLM calls here. This is the part
-a consultancy needs to trust.
-"""
-
 import statistics
 from typing import List, Dict, Any
 
 from app.qa.models import QAFinding, Severity
 
-
-# ---------------------------------------------------------------------------
-# Configuration — tune these against real Delft3D output / site knowledge.
-# Treat this as the encoded version of your own modeling judgment.
-# ---------------------------------------------------------------------------
-
 PHYSICAL_RANGES = {
-    "salinity": (0.0, 40.0),          # psu
-    "temperature": (-2.0, 40.0),      # deg C
-    "water_level": (-5.0, 5.0),       # m, site-dependent — override per project
-    "u_velocity": (-3.0, 3.0),        # m/s, adjust for site
-    "v_velocity": (-3.0, 3.0),        # m/s, adjust for site
+    "salinity": (0.0, 40.0),
+    "temperature": (-2.0, 40.0),
+    "water_level": (-5.0, 5.0),
+    "u_velocity": (-3.0, 3.0),
+    "v_velocity": (-3.0, 3.0),
 }
 
-# Max allowed change between consecutive timesteps before flagging a spike.
-# Expressed as multiples of the variable's own standard deviation across the run.
 SPIKE_STD_MULTIPLIER = {
     "salinity": 4.0,
     "temperature": 4.0,
@@ -36,25 +19,22 @@ SPIKE_STD_MULTIPLIER = {
     "v_velocity": 4.0,
 }
 
-# Fraction of the run (start/end) used to check for drift / non-convergence
 DRIFT_WINDOW_FRACTION = 0.1
 DRIFT_THRESHOLD_STD_MULTIPLIER = 2.0
+MAX_VELOCITY_MAGNITUDE = 3.5
 
-# Velocity magnitude ceiling for a generic coastal/estuarine setting.
-MAX_VELOCITY_MAGNITUDE = 3.5  # m/s — override per site
+# New: how much the spread (std dev) is allowed to grow between the start
+# and end windows before we flag it as a possible instability signature.
+AMPLITUDE_GROWTH_RATIO_THRESHOLD = 1.75
 
 
-def _mean_std(values: List[float]) -> tuple[float, float]:
+def _mean_std(values):
     if len(values) < 2:
         return (values[0] if values else 0.0, 0.0)
     return statistics.mean(values), statistics.stdev(values)
 
 
-# ---------------------------------------------------------------------------
-# Checks
-# ---------------------------------------------------------------------------
-
-def check_missing_or_null(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
+def check_missing_or_null(rows, simulation_id):
     findings = []
     fields = ["salinity", "temperature", "water_level", "u_velocity", "v_velocity"]
     for row in rows:
@@ -71,7 +51,7 @@ def check_missing_or_null(rows: List[Dict[str, Any]], simulation_id: int) -> Lis
     return findings
 
 
-def check_physical_ranges(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
+def check_physical_ranges(rows, simulation_id):
     findings = []
     for row in rows:
         for field, (lo, hi) in PHYSICAL_RANGES.items():
@@ -82,8 +62,7 @@ def check_physical_ranges(rows: List[Dict[str, Any]], simulation_id: int) -> Lis
                 findings.append(QAFinding(
                     check_name="physical_range",
                     severity=Severity.CRITICAL,
-                    message=f"'{field}' = {val} is outside physically plausible range [{lo}, {hi}] "
-                            f"at row_id {row.get('row_id')}",
+                    message=f"'{field}' = {val} is outside physically plausible range [{lo}, {hi}] at row_id {row.get('row_id')}",
                     simulation_id=simulation_id,
                     row_id=row.get("row_id"),
                     value=val,
@@ -91,11 +70,9 @@ def check_physical_ranges(rows: List[Dict[str, Any]], simulation_id: int) -> Lis
     return findings
 
 
-def check_spikes(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
-    """Flag sudden discontinuities between consecutive timesteps."""
+def check_spikes(rows, simulation_id):
     findings = []
     fields = ["salinity", "temperature", "water_level", "u_velocity", "v_velocity"]
-
     for field in fields:
         series = [r.get(field) for r in rows if r.get(field) is not None]
         if len(series) < 3:
@@ -104,7 +81,6 @@ def check_spikes(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFindi
         if std == 0:
             continue
         threshold = SPIKE_STD_MULTIPLIER[field] * std
-
         for i in range(1, len(rows)):
             prev_val = rows[i - 1].get(field)
             curr_val = rows[i].get(field)
@@ -115,9 +91,7 @@ def check_spikes(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFindi
                 findings.append(QAFinding(
                     check_name="spike_discontinuity",
                     severity=Severity.WARNING,
-                    message=f"'{field}' jumped by {delta:.3f} between row_id "
-                            f"{rows[i-1].get('row_id')} and {rows[i].get('row_id')} "
-                            f"(threshold: {threshold:.3f}). Possible instability or bad timestep.",
+                    message=f"'{field}' jumped by {delta:.3f} between row_id {rows[i-1].get('row_id')} and {rows[i].get('row_id')} (threshold: {threshold:.3f}). Possible instability or bad timestep.",
                     simulation_id=simulation_id,
                     row_id=rows[i].get("row_id"),
                     value=delta,
@@ -126,7 +100,7 @@ def check_spikes(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFindi
     return findings
 
 
-def check_velocity_magnitude(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
+def check_velocity_magnitude(rows, simulation_id):
     findings = []
     for row in rows:
         u = row.get("u_velocity")
@@ -138,8 +112,7 @@ def check_velocity_magnitude(rows: List[Dict[str, Any]], simulation_id: int) -> 
             findings.append(QAFinding(
                 check_name="velocity_magnitude",
                 severity=Severity.WARNING,
-                message=f"Velocity magnitude {magnitude:.3f} m/s exceeds ceiling "
-                        f"{MAX_VELOCITY_MAGNITUDE} m/s at row_id {row.get('row_id')}",
+                message=f"Velocity magnitude {magnitude:.3f} m/s exceeds ceiling {MAX_VELOCITY_MAGNITUDE} m/s at row_id {row.get('row_id')}",
                 simulation_id=simulation_id,
                 row_id=row.get("row_id"),
                 value=magnitude,
@@ -148,19 +121,13 @@ def check_velocity_magnitude(rows: List[Dict[str, Any]], simulation_id: int) -> 
     return findings
 
 
-def check_drift_stability(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
-    """
-    Compare the start and end windows of the run. A large, unexplained shift
-    can indicate the model hasn't reached a stable/expected state, or that
-    something diverges rather than settles.
-    """
+def check_drift_stability(rows, simulation_id):
     findings = []
     fields = ["salinity", "temperature", "water_level"]
     n = len(rows)
     window = max(1, int(n * DRIFT_WINDOW_FRACTION))
     if n < window * 2:
-        return findings  # run too short to assess drift meaningfully
-
+        return findings
     for field in fields:
         series = [r.get(field) for r in rows if r.get(field) is not None]
         if len(series) < window * 2:
@@ -168,19 +135,15 @@ def check_drift_stability(rows: List[Dict[str, Any]], simulation_id: int) -> Lis
         _, std = _mean_std(series)
         if std == 0:
             continue
-
         start_mean = statistics.mean(series[:window])
         end_mean = statistics.mean(series[-window:])
         drift = abs(end_mean - start_mean)
         threshold = DRIFT_THRESHOLD_STD_MULTIPLIER * std
-
         if drift > threshold:
             findings.append(QAFinding(
                 check_name="drift_stability",
                 severity=Severity.INFO,
-                message=f"'{field}' shifted by {drift:.3f} from start to end of run "
-                        f"(threshold: {threshold:.3f}). Confirm this drift is physically "
-                        f"expected (e.g. tidal cycle) rather than non-convergence.",
+                message=f"'{field}' shifted by {drift:.3f} from start to end of run (threshold: {threshold:.3f}). Confirm this is physically expected rather than non-convergence.",
                 simulation_id=simulation_id,
                 value=drift,
                 threshold=threshold,
@@ -188,9 +151,52 @@ def check_drift_stability(rows: List[Dict[str, Any]], simulation_id: int) -> Lis
     return findings
 
 
-# ---------------------------------------------------------------------------
-# Orchestration
-# ---------------------------------------------------------------------------
+def check_amplitude_growth(rows, simulation_id):
+    """
+    Compares the SPREAD (std dev) of the start window vs the end window,
+    rather than the mean. Catches growing oscillations / diverging runs
+    that check_drift_stability misses, since a growing wobble can average
+    out to the same mean while its variance still blows up.
+    """
+    findings = []
+    fields = ["salinity", "temperature", "water_level", "u_velocity", "v_velocity"]
+    n = len(rows)
+    window = max(3, int(n * DRIFT_WINDOW_FRACTION))
+    if n < window * 2:
+        return findings
+
+    for field in fields:
+        series = [r.get(field) for r in rows if r.get(field) is not None]
+        if len(series) < window * 2:
+            continue
+
+        start_window = series[:window]
+        end_window = series[-window:]
+
+        if len(set(start_window)) < 2 or len(set(end_window)) < 2:
+            continue  # not enough variation to compute std meaningfully
+
+        start_std = statistics.stdev(start_window)
+        end_std = statistics.stdev(end_window)
+
+        if start_std == 0:
+            continue  # avoid divide-by-zero; a flat start window with growth is rare but possible — could add a separate absolute check later
+
+        growth_ratio = end_std / start_std
+
+        if growth_ratio > AMPLITUDE_GROWTH_RATIO_THRESHOLD:
+            findings.append(QAFinding(
+                check_name="amplitude_growth",
+                severity=Severity.WARNING,
+                message=f"'{field}' variability grew {growth_ratio:.2f}x from start to end of run "
+                        f"(start std: {start_std:.3f}, end std: {end_std:.3f}). "
+                        f"Possible numerical instability rather than a settling/tidal pattern.",
+                simulation_id=simulation_id,
+                value=growth_ratio,
+                threshold=AMPLITUDE_GROWTH_RATIO_THRESHOLD,
+            ))
+    return findings
+
 
 ALL_CHECKS = [
     check_missing_or_null,
@@ -198,13 +204,13 @@ ALL_CHECKS = [
     check_spikes,
     check_velocity_magnitude,
     check_drift_stability,
+    check_amplitude_growth,
 ]
 
 
-def run_all_checks(rows: List[Dict[str, Any]], simulation_id: int) -> List[QAFinding]:
-    """Run every registered check against one simulation's rows (sorted by time)."""
+def run_all_checks(rows, simulation_id):
     sorted_rows = sorted(rows, key=lambda r: r.get("time", 0))
-    findings: List[QAFinding] = []
+    findings = []
     for check_fn in ALL_CHECKS:
         findings.extend(check_fn(sorted_rows, simulation_id))
     return findings
